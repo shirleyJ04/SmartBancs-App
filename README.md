@@ -18,7 +18,7 @@ MVP de transferencias locales con outbox recuperable, IA (Gemini + reglas) asín
 ## Instalar y levantar
 
 ```bash
-git clone https://github.com/<TU-USUARIO-GITHUB>/SmartBancs-App.git
+git clone https://github.com/shirleyJ04/SmartBancs-App.git
 cd SmartBancs-App
 cp .env.example .env
 # Opcional: editar .env y pegar GEMINI_API_KEY=...
