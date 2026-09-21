@@ -1,0 +1,143 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-smartbancs}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smartbancs}
+      POSTGRES_DB: ${POSTGRES_DB:-smartbancs}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - smartbancs_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-smartbancs} -d ${POSTGRES_DB:-smartbancs}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ai-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ai
+      POSTGRES_PASSWORD: ai
+      POSTGRES_DB: smartbancs_ai
+    ports:
+      - "5433:5432"
+    volumes:
+      - smartbancs_ai_pg:/var/lib/postgresql/data
+      - ./services/ai/sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai -d smartbancs_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  etl:
+    build:
+      context: .
+      dockerfile: etl/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-smartbancs}:${POSTGRES_PASSWORD:-smartbancs}@postgres:5432/${POSTGRES_DB:-smartbancs}
+      AI_DATABASE_URL: postgresql://ai:ai@ai-db:5432/smartbancs_ai
+    volumes:
+      - ./testdata:/app/testdata
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai-db:
+        condition: service_healthy
+    command:
+      [
+        "python",
+        "/app/transform.py",
+        "--from-db",
+        "/app/testdata/raw_transactions.csv",
+        "/app/testdata/clean_transactions.json",
+        "/app/testdata/rejected.csv",
+        "/app/testdata/excluded_infra.csv",
+        "/app/testdata/prompt_contexts.json",
+      ]
+    restart: "no"
+
+  ai:
+    build:
+      context: ./services/ai
+    environment:
+      PORT: 3001
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      AI_DATABASE_URL: postgresql://ai:ai@ai-db:5432/smartbancs_ai
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_POOL_IDLE_MS: ${DB_POOL_IDLE_MS:-30000}
+      DB_POOL_CONN_TIMEOUT_MS: ${DB_POOL_CONN_TIMEOUT_MS:-5000}
+      AI_PROVIDER: ${AI_PROVIDER:-gemini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
+      GEMINI_TIMEOUT_MS: ${GEMINI_TIMEOUT_MS:-8000}
+    ports:
+      - "${AI_PORT:-3001}:3001"
+    depends_on:
+      ai-db:
+        condition: service_healthy
+      etl:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./services/app
+    environment:
+      APP_ROLE: api
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-smartbancs}:${POSTGRES_PASSWORD:-smartbancs}@postgres:5432/${POSTGRES_DB:-smartbancs}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      AI_SERVICE_URL: http://ai:3001
+      LOCK_TIMEOUT: ${LOCK_TIMEOUT:-2s}
+      STATEMENT_TIMEOUT: ${STATEMENT_TIMEOUT:-5s}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INGEST_ENQUEUE_BATCH_SIZE: ${INGEST_ENQUEUE_BATCH_SIZE:-500}
+      INGEST_ENQUEUE_FLUSH_MS: ${INGEST_ENQUEUE_FLUSH_MS:-10}
+      INGEST_ENQUEUE_MAX_BUFFERED: ${INGEST_ENQUEUE_MAX_BUFFERED:-100000}
+      INGEST_ENQUEUE_FLUSH_CONCURRENCY: ${INGEST_ENQUEUE_FLUSH_CONCURRENCY:-2}
+      API_CLUSTER: ${API_CLUSTER:-0}
+      API_WORKERS: ${API_WORKERS:-1}
+    ports:
+      - "${API_PORT:-3000}:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai:
+        condition: service_started
+
+  worker:
+    build:
+      context: ./services/app
+    environment:
+      APP_ROLE: worker
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-smartbancs}:${POSTGRES_PASSWORD:-smartbancs}@postgres:5432/${POSTGRES_DB:-smartbancs}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      AI_SERVICE_URL: http://ai:3001
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-10}
+      OUTBOX_POLL_MS: ${OUTBOX_POLL_MS:-500}
+      OUTBOX_LEASE_SECONDS: ${OUTBOX_LEASE_SECONDS:-30}
+      OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-5}
+      INGEST_BATCH_SIZE: ${INGEST_BATCH_SIZE:-50}
+      INGEST_POLL_MS: ${INGEST_POLL_MS:-100}
+      INGEST_LEASE_SECONDS: ${INGEST_LEASE_SECONDS:-30}
+      INGEST_MAX_ATTEMPTS: ${INGEST_MAX_ATTEMPTS:-5}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai:
+        condition: service_started
+
+volumes:
+  smartbancs_pg:
+  smartbancs_ai_pg:

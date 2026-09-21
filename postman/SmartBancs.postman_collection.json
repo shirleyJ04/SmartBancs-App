@@ -1,0 +1,405 @@
+{
+  "info": {
+    "name": "SmartBancs App",
+    "description": "API + IA del MVP SmartBancs (TCS NextGen).\n\nFlujo típico:\n1) Operación → Health / Metrics\n2) Transferencias (ledger local, outbox async)\n3) Esperar 1–2 s → Recomendaciones de la cuenta\n4) Raw transactions / Infra (ingest y excepciones)\n5) IA Gemini directa (ledger ai-db, consejos)\n\nVariables: baseUrl=http://localhost:3000 · aiUrl=http://localhost:3001\nCuentas demo: ACC-001…ACC-004 · historial ETL: ACC-148 · sin historial: ACC-99999",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "aiUrl", "value": "http://localhost:3001" },
+    { "key": "accountNumber", "value": "ACC-001" },
+    { "key": "accountWithHistory", "value": "ACC-148" },
+    { "key": "accountThinHistory", "value": "ACC-99999" },
+    { "key": "idempotencyKey", "value": "postman-demo-001" },
+    { "key": "rawUid", "value": "txn-postman-001" }
+  ],
+  "item": [
+    {
+      "name": "1. Operación",
+      "item": [
+        {
+          "name": "Health API",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "Liveness de la API NestJS."
+          }
+        },
+        {
+          "name": "Metrics Prometheus",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/metrics",
+            "description": "Observabilidad 3.4/3.5: transfers, errores, latencia, deadlocks, timeouts, IA, outbox."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Cuentas",
+      "item": [
+        {
+          "name": "Listar cuentas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/accounts?limit=50"
+          }
+        },
+        {
+          "name": "Buscar cuentas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/accounts?limit=20&q=Ruiz"
+          }
+        },
+        {
+          "name": "Obtener cuenta",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/accounts/{{accountNumber}}"
+          }
+        },
+        {
+          "name": "Obtener cuenta con historial (ACC-148)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/accounts/{{accountWithHistory}}",
+            "description": "Cuenta con ledger ETL en ai-db para demo Gemini con %."
+          }
+        },
+        {
+          "name": "Transferencias de la cuenta",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/accounts/{{accountNumber}}/transfers"
+          }
+        },
+        {
+          "name": "Recomendaciones (vía API / outbox)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/accounts/{{accountNumber}}/recommendations",
+            "description": "Tras un POST /transfers, esperar 1–2 s y refrescar. El worker llama a la IA de forma asíncrona."
+          }
+        },
+        {
+          "name": "Recomendaciones ACC-148 (historial)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/accounts/{{accountWithHistory}}/recommendations",
+            "description": "Tras transferir desde ACC-148: suele CATEGORY_SPIKE / MONTHLY_SPIKE con cifras y %."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Transferencias",
+      "item": [
+        {
+          "name": "Crear transferencia",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromAccount\": \"ACC-001\",\n  \"toAccount\": \"ACC-002\",\n  \"amount\": \"25.00\",\n  \"currency\": \"USD\",\n  \"idempotencyKey\": \"{{idempotencyKey}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/transfers",
+            "description": "COMPLETED solo tras COMMIT. Encola AI_RECOMMEND en outbox; no espera a Gemini. Cambia idempotencyKey para cada transferencia nueva."
+          }
+        },
+        {
+          "name": "Transferir ACC-148 (demo IA con historial)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromAccount\": \"ACC-148\",\n  \"toAccount\": \"ACC-002\",\n  \"amount\": \"10.00\",\n  \"currency\": \"USD\",\n  \"idempotencyKey\": \"postman-acc148-{{$guid}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/transfers",
+            "description": "Responde COMPLETED al instante. Luego GET recomendaciones ACC-148 (1–2 s) para ver consejo Gemini/reglas con %."
+          }
+        },
+        {
+          "name": "Reenviar misma clave (idempotencia)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromAccount\": \"ACC-001\",\n  \"toAccount\": \"ACC-002\",\n  \"amount\": \"25.00\",\n  \"currency\": \"USD\",\n  \"idempotencyKey\": \"{{idempotencyKey}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/transfers",
+            "description": "200 + replayed=true, sin segundo débito."
+          }
+        },
+        {
+          "name": "Conflicto de clave (otro monto)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromAccount\": \"ACC-001\",\n  \"toAccount\": \"ACC-002\",\n  \"amount\": \"50.00\",\n  \"currency\": \"USD\",\n  \"idempotencyKey\": \"{{idempotencyKey}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/transfers",
+            "description": "Tras crear con 25.00 y la misma clave → 409."
+          }
+        },
+        {
+          "name": "Saldo insuficiente",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromAccount\": \"ACC-004\",\n  \"toAccount\": \"ACC-001\",\n  \"amount\": \"500.00\",\n  \"currency\": \"USD\",\n  \"idempotencyKey\": \"postman-nsf-001\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/transfers",
+            "description": "ACC-004 tiene ~100.00 → 422 INSUFFICIENT_FUNDS."
+          }
+        },
+        {
+          "name": "Cuenta inexistente",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromAccount\": \"ACC-99999\",\n  \"toAccount\": \"ACC-001\",\n  \"amount\": \"10.00\",\n  \"currency\": \"USD\",\n  \"idempotencyKey\": \"postman-missing-{{$guid}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/transfers",
+            "description": "ACCOUNT_NOT_FOUND (no entra al ledger de IA en el ETL)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Raw transactions (ingest)",
+      "item": [
+        {
+          "name": "Stats ingest",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/raw-transactions/stats",
+            "description": "Conteos de raw_transactions / cola. Soft-ack 202 + worker drenan aquí."
+          }
+        },
+        {
+          "name": "Crear raw (COMPLETED negocio)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uid\": \"{{rawUid}}\",\n  \"account\": \"ACC-148\",\n  \"typeCode\": \"08\",\n  \"typeName\": \"Pago con Tarjeta de Crédito\",\n  \"natureCode\": \"D\",\n  \"productCode\": \"TJC\",\n  \"status\": \"COMPLETED\",\n  \"amount\": \"45.50\",\n  \"currency\": \"USD\",\n  \"date\": \"2026-09-20\",\n  \"counterpartName\": \"Restaurante Demo\",\n  \"category\": \"food\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/raw-transactions",
+            "description": "202 accepted + queued. Cambia rawUid si reenvías (unique). Contrato 1 POST = 1 TX."
+          }
+        },
+        {
+          "name": "Crear raw (REJECTED CARD_DECLINED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uid\": \"txn-postman-declined-{{$timestamp}}\",\n  \"account\": \"ACC-148\",\n  \"typeCode\": \"08\",\n  \"typeName\": \"Pago con Tarjeta de Crédito\",\n  \"natureCode\": \"D\",\n  \"productCode\": \"TJC\",\n  \"status\": \"REJECTED\",\n  \"rejectReason\": \"CARD_DECLINED\",\n  \"amount\": \"120.00\",\n  \"currency\": \"USD\",\n  \"date\": \"2026-09-20\",\n  \"counterpartName\": \"Tienda Demo\",\n  \"category\": \"shopping\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/raw-transactions",
+            "description": "Rechazo de negocio: sí puede ir al ledger de IA tras el ETL."
+          }
+        },
+        {
+          "name": "Crear raw (REJECTED ACCOUNT_NOT_FOUND)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uid\": \"txn-postman-anf-{{$timestamp}}\",\n  \"account\": \"ACC-99999\",\n  \"typeCode\": \"34\",\n  \"typeName\": \"Transferencia enviada\",\n  \"natureCode\": \"D\",\n  \"productCode\": \"AHO\",\n  \"status\": \"REJECTED\",\n  \"rejectReason\": \"ACCOUNT_NOT_FOUND\",\n  \"amount\": \"10.00\",\n  \"currency\": \"USD\",\n  \"date\": \"2026-09-20\",\n  \"counterpartName\": \"Desconocido\",\n  \"category\": \"transfer\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/raw-transactions",
+            "description": "El ETL excluye ACCOUNT_NOT_FOUND del ledger de IA."
+          }
+        },
+        {
+          "name": "Batch raw (hasta 200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"uid\": \"txn-postman-batch-a-{{$timestamp}}\",\n      \"account\": \"ACC-001\",\n      \"typeCode\": \"03\",\n      \"typeName\": \"Depósito\",\n      \"natureCode\": \"C\",\n      \"productCode\": \"AHO\",\n      \"status\": \"COMPLETED\",\n      \"amount\": \"100.00\",\n      \"currency\": \"USD\",\n      \"date\": \"2026-09-20\",\n      \"counterpartName\": \"Empleador\",\n      \"category\": \"income\"\n    },\n    {\n      \"uid\": \"txn-postman-batch-b-{{$timestamp}}\",\n      \"account\": \"ACC-001\",\n      \"typeCode\": \"71\",\n      \"typeName\": \"Retiro\",\n      \"natureCode\": \"D\",\n      \"productCode\": \"AHO\",\n      \"status\": \"COMPLETED\",\n      \"amount\": \"20.00\",\n      \"currency\": \"USD\",\n      \"date\": \"2026-09-20\",\n      \"counterpartName\": \"Cajero\",\n      \"category\": \"cash\"\n    }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/raw-transactions/batch",
+            "description": "Lote con ValidationPipe. Para estrés alto preferir POST unitario + script emit."
+          }
+        },
+        {
+          "name": "Limpiar raw + cola",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/raw-transactions",
+            "description": "Borra raw_transactions e ingest_queue. Usar con cuidado."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Infra exceptions",
+      "item": [
+        {
+          "name": "Stats infra",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/infra-exceptions/stats",
+            "description": "Timeouts / fallos de plataforma (nunca van al ledger de IA)."
+          }
+        },
+        {
+          "name": "Registrar excepción (TIMEOUT)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"correlationId\": \"{{$guid}}\",\n  \"component\": \"emitter\",\n  \"errorCode\": \"TIMEOUT\",\n  \"message\": \"Simulación Postman: timeout hacia la API\",\n  \"operation\": \"raw_transactions.emit\",\n  \"detail\": { \"source\": \"postman\" }\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/infra-exceptions",
+            "description": "201 recorded. correlationId debe ser UUID."
+          }
+        },
+        {
+          "name": "Limpiar infra_exceptions",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/infra-exceptions"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. IA Gemini (servicio :3001)",
+      "item": [
+        {
+          "name": "Health IA",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{aiUrl}}/health",
+            "description": "provider=gemini|rules, modelo, stats de ai-db."
+          }
+        },
+        {
+          "name": "Ledger ACC-148 (ai-db)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{aiUrl}}/v1/accounts/{{accountWithHistory}}/ledger",
+            "description": "Movimientos limpios cargados por el ETL."
+          }
+        },
+        {
+          "name": "Consejos guardados ACC-148",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{aiUrl}}/v1/accounts/{{accountWithHistory}}/advices"
+          }
+        },
+        {
+          "name": "Recomendar ACC-148 (con historial / %)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountId\": \"00000000-0000-4000-8000-000000000148\",\n  \"accountNumber\": \"ACC-148\",\n  \"balance\": \"5000.00\",\n  \"currency\": \"USD\",\n  \"transferAmount\": \"25.00\",\n  \"correlationId\": \"{{$guid}}\"\n}"
+            },
+            "url": "{{aiUrl}}/v1/recommend",
+            "description": "Gemini o reglas: MONTHLY_SPIKE / CATEGORY_SPIKE con cifras y %. Misma lógica que financial-health."
+          }
+        },
+        {
+          "name": "Salud financiera ACC-148",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNumber\": \"ACC-148\",\n  \"balance\": \"5000.00\",\n  \"currency\": \"USD\",\n  \"transferAmount\": \"25.00\",\n  \"correlationId\": \"{{$guid}}\"\n}"
+            },
+            "url": "{{aiUrl}}/v1/financial-health"
+          }
+        },
+        {
+          "name": "Recomendar sin historial (NEED_MORE_DATA)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-Id", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNumber\": \"ACC-99999\",\n  \"balance\": \"100.00\",\n  \"currency\": \"USD\",\n  \"transferAmount\": \"10.00\",\n  \"correlationId\": \"{{$guid}}\"\n}"
+            },
+            "url": "{{aiUrl}}/v1/recommend",
+            "description": "Sin ledger ETL → categoría NEED_MORE_DATA."
+          }
+        }
+      ]
+    }
+  ]
+}

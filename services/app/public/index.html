@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SmartBancs App</title>
+  <style>
+    :root { font-family: "Segoe UI", system-ui, sans-serif; color: #1c1917; background: #f5f1ea; }
+    body { margin: 0; }
+    header { padding: 1.5rem 2rem; background: #1f3d2b; color: #f5f1ea; }
+    header p { margin: 0.3rem 0 0; opacity: 0.85; }
+    main { display: grid; gap: 1.25rem; padding: 1.5rem; grid-template-columns: 1fr 1fr; }
+    section { background: #fff; padding: 1rem 1.2rem; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+    h2 { margin-top: 0; font-size: 1.1rem; }
+    label { display: block; margin: 0.5rem 0 0.2rem; font-size: 0.9rem; }
+    input, select, button { width: 100%; box-sizing: border-box; padding: 0.5rem; font: inherit; }
+    button { margin-top: 0.8rem; background: #1f3d2b; color: #fff; border: 0; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.35rem 0.2rem; border-bottom: 1px solid #e7e5e4; }
+    .muted { color: #78716c; font-size: 0.85rem; }
+    #status { min-height: 1.2rem; }
+    @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SmartBancs App</h1>
+    <p>10 000 cuentas locales. COMPLETED = commit local. Bancs se simula.</p>
+  </header>
+  <main>
+    <section>
+      <h2>Nueva transferencia</h2>
+      <label>Origen (ACC-001 … ACC-10000)</label>
+      <input id="fromAccount" list="accountOptions" value="ACC-001" />
+      <label>Destino</label>
+      <input id="toAccount" list="accountOptions" value="ACC-002" />
+      <datalist id="accountOptions"></datalist>
+      <label>Monto</label>
+      <input id="amount" value="25.00" />
+      <label>Idempotency-Key</label>
+      <input id="idempotencyKey" />
+      <button id="send">Transferir</button>
+      <p id="status" class="muted"></p>
+    </section>
+    <section>
+      <h2>Cuentas</h2>
+      <label>Buscar titular o número</label>
+      <input id="accountQuery" placeholder="Ruiz, ACC-120" />
+      <p id="accountCount" class="muted"></p>
+      <table><thead><tr><th>Cuenta</th><th>Titular</th><th>Saldo</th></tr></thead><tbody id="accounts"></tbody></table>
+    </section>
+    <section>
+      <h2>Últimas transferencias</h2>
+      <table><thead><tr><th>De</th><th>A</th><th>Monto</th><th>Estado</th></tr></thead><tbody id="transfers"></tbody></table>
+    </section>
+    <section>
+      <h2>Recomendaciones de IA</h2>
+      <p class="muted">Aparecen cuando el worker procesa el outbox. Usa Actualizar.</p>
+      <button id="refresh">Actualizar</button>
+      <div id="recs"></div>
+    </section>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    $("idempotencyKey").value = "ui-" + Date.now();
+
+    async function loadAccounts() {
+      const q = $("accountQuery").value.trim();
+      const url = "/api/v1/accounts?limit=20" + (q ? "&q=" + encodeURIComponent(q) : "");
+      const page = await fetch(url).then((r) => r.json());
+      $("accountCount").textContent = page.total + " cuentas (mostrando " + page.items.length + ")";
+      $("accounts").innerHTML = page.items.map((a) =>
+        `<tr><td>${a.accountNumber}</td><td>${a.holderName}</td><td>${a.balance} ${a.currency}</td></tr>`
+      ).join("");
+      $("accountOptions").innerHTML = page.items.map((a) =>
+        `<option value="${a.accountNumber}">${a.holderName}</option>`
+      ).join("");
+    }
+
+    async function loadMoves() {
+      const watched = [...new Set(["ACC-001", $("fromAccount").value, $("toAccount").value].filter(Boolean))];
+      const transfers = [];
+      const recs = [];
+      for (const accountNumber of watched) {
+        const txsRes = await fetch(`/api/v1/accounts/${accountNumber}/transfers`);
+        if (!txsRes.ok) continue;
+        const txs = await txsRes.json();
+        transfers.push(...txs);
+        const recRes = await fetch(`/api/v1/accounts/${accountNumber}/recommendations`);
+        if (!recRes.ok) continue;
+        const recommendations = await recRes.json();
+        recs.push(...recommendations.map((r) => ({ ...r, account: accountNumber })));
+      }
+      const unique = Object.values(Object.fromEntries(transfers.map((t) => [t.id, t])));
+      unique.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      $("transfers").innerHTML = unique.slice(0, 8).map((t) =>
+        `<tr><td>${t.fromAccount}</td><td>${t.toAccount}</td><td>${t.amount}</td><td>${t.status}</td></tr>`
+      ).join("");
+      recs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      $("recs").innerHTML = recs.slice(0, 6).map((r) =>
+        `<p><strong>${r.account}</strong> · ${r.category}<br>${r.message}</p>`
+      ).join("") || "<p class='muted'>Aún no hay recomendaciones.</p>";
+    }
+
+    async function refresh() {
+      await loadAccounts();
+      await loadMoves();
+    }
+
+    $("send").onclick = async () => {
+      $("status").textContent = "Enviando…";
+      const response = await fetch("/api/v1/transfers", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          fromAccount: $("fromAccount").value,
+          toAccount: $("toAccount").value,
+          amount: $("amount").value,
+          currency: "USD",
+          idempotencyKey: $("idempotencyKey").value,
+        }),
+      });
+      const body = await response.json();
+      $("status").textContent = response.ok
+        ? `COMPLETED ${body.id}${body.replayed ? " (reproceso)" : ""}`
+        : `${body.code || response.status}: ${body.message || ""}`;
+      $("idempotencyKey").value = "ui-" + Date.now();
+      await refresh();
+    };
+    $("refresh").onclick = refresh;
+    $("accountQuery").addEventListener("change", loadAccounts);
+    $("accountQuery").addEventListener("keyup", (event) => {
+      if (event.key === "Enter") loadAccounts();
+    });
+    refresh();
+  </script>
+</body>
+</html>

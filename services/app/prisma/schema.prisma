@@ -1,0 +1,147 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id            String   @id @db.Uuid
+  accountNumber String   @unique @map("account_number")
+  holderName    String   @map("holder_name")
+  balance       Decimal  @db.Decimal(18, 2)
+  currency      String   @db.Char(3)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  outgoingTransfers Transfer[]        @relation("FromAccount")
+  incomingTransfers Transfer[]        @relation("ToAccount")
+  recommendations   Recommendation[]
+
+  @@map("accounts")
+}
+
+model Transfer {
+  id             String   @id @db.Uuid
+  correlationId  String   @map("correlation_id") @db.Uuid
+  idempotencyKey String   @unique @map("idempotency_key")
+  requestHash    String   @map("request_hash")
+  fromAccountId  String   @map("from_account_id") @db.Uuid
+  toAccountId    String   @map("to_account_id") @db.Uuid
+  amount         Decimal  @db.Decimal(18, 2)
+  currency       String   @db.Char(3)
+  status         String
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  fromAccount  Account       @relation("FromAccount", fields: [fromAccountId], references: [id])
+  toAccount    Account       @relation("ToAccount", fields: [toAccountId], references: [id])
+  outboxEvents OutboxEvent[]
+
+  @@map("transfers")
+}
+
+model TransferFailure {
+  id             String   @id @db.Uuid
+  correlationId  String   @map("correlation_id") @db.Uuid
+  idempotencyKey String?  @map("idempotency_key")
+  fromAccount    String?  @map("from_account")
+  toAccount      String?  @map("to_account")
+  amount         String?
+  currency       String?
+  reasonCode     String   @map("reason_code")
+  reasonMessage  String   @map("reason_message")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("transfer_failures")
+}
+
+model InfraException {
+  id             String   @id @db.Uuid
+  correlationId  String?  @map("correlation_id") @db.Uuid
+  component      String
+  errorCode      String   @map("error_code")
+  message        String
+  operation      String?
+  detail         Json?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([errorCode, createdAt])
+  @@index([component, createdAt])
+  @@map("infra_exceptions")
+}
+
+model RawTransaction {
+  id               String   @id @db.Uuid
+  uid              String   @unique
+  accountNumber    String   @map("account_number")
+  typeCode         String   @map("type_code") @db.Char(2)
+  typeName         String   @map("type_name")
+  natureCode       String   @map("nature_code") @db.Char(1)
+  productCode      String   @map("product_code") @db.Char(3)
+  status           String
+  amount           Decimal  @db.Decimal(18, 2)
+  currency         String   @db.Char(3)
+  bookedOn         DateTime @map("booked_on") @db.Date
+  counterpartName  String   @map("counterpart_name")
+  category         String
+  rejectReason     String?  @map("reject_reason")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([accountNumber, bookedOn])
+  @@index([createdAt])
+  @@map("raw_transactions")
+}
+
+model IngestQueue {
+  id             String    @id @db.Uuid
+  payload        Json
+  status         String
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  claimedAt      DateTime? @map("claimed_at") @db.Timestamptz(6)
+  claimExpiresAt DateTime? @map("claim_expires_at") @db.Timestamptz(6)
+  lastError      String?   @map("last_error")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  processedAt    DateTime? @map("processed_at") @db.Timestamptz(6)
+
+  @@index([status, nextAttemptAt])
+  @@map("ingest_queue")
+}
+
+model OutboxEvent {
+  id             String    @id @db.Uuid
+  eventType      String    @map("event_type")
+  payload        Json
+  status         String
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  claimedAt      DateTime? @map("claimed_at") @db.Timestamptz(6)
+  claimExpiresAt DateTime? @map("claim_expires_at") @db.Timestamptz(6)
+  lastError      String?   @map("last_error")
+  transferId     String?   @map("transfer_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  processedAt    DateTime? @map("processed_at") @db.Timestamptz(6)
+
+  transfer       Transfer?       @relation(fields: [transferId], references: [id])
+  recommendation Recommendation?
+
+  @@index([status, nextAttemptAt])
+  @@map("outbox_events")
+}
+
+model Recommendation {
+  id            String   @id @db.Uuid
+  accountId     String   @map("account_id") @db.Uuid
+  outboxEventId String   @unique @map("outbox_event_id") @db.Uuid
+  message       String
+  category      String
+  confidence    Decimal  @db.Decimal(5, 4)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account     Account     @relation(fields: [accountId], references: [id])
+  outboxEvent OutboxEvent @relation(fields: [outboxEventId], references: [id])
+
+  @@map("recommendations")
+}

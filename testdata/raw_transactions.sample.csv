@@ -1,0 +1,12 @@
+uid,account,type_code,type_name,nature_code,product_code,status,amount,currency,date,counterpart_name,category,reject_reason
+txn-001,ACC-001,37,Nota de Débito,D,TJC,COMPLETED,20.00,USD,2026-08-05,Mercado Central,food,
+txn-002,ACC-001,03,Depósito,C,AHO,COMPLETED,150.00,USD,2026-08-08,ACH Nómina,deposit,
+txn-003,ACC-001,71,Retiro,D,AHO,COMPLETED,40.00,USD,2026-08-12,ATM Centro,cash,
+txn-004,ACC-001,34,Transferencia nacional enviada,D,AHO,COMPLETED,80.00,USD,2026-08-15,Bruno Díaz,transfer,
+txn-005,ACC-001,37,Nota de Débito,D,TJC,COMPLETED,220.00,USD,2026-09-04,Restaurante Andes,food,
+txn-006,ACC-001,06,Inversión,D,INV,COMPLETED,300.00,USD,2026-09-10,Póliza DPAC-002,investment,
+txn-007,ACC-001,37,Nota de Débito,D,TJC,REJECTED,90.00,USD,2026-09-14,Bar La Esquina,food,CARD_DECLINED
+txn-008,ACC-001,71,Retiro,D,AHO,REJECTED,99999.00,USD,2026-09-16,ATM Mall,cash,INSUFFICIENT_FUNDS
+txn-009,ACC-002,35,Transferencia nacional recibida,C,AHO,COMPLETED,40.00,USD,2026-08-03,Ana Ruiz,transfer,
+txn-010,ACC-002,08,Pago tarjeta de crédito,D,TJC,COMPLETED,250.00,USD,2026-09-02,Tienda Tech,shopping,
+txn-011,ACC-90001,34,Transferencia nacional enviada,D,AHO,REJECTED,55.00,USD,2026-09-19,Ana Ruiz,transfer,ACCOUNT_NOT_FOUND
