@@ -46,6 +46,8 @@ services:
         condition: service_healthy
       ai-db:
         condition: service_healthy
+      api:
+        condition: service_healthy
     command:
       [
         "python",
@@ -108,11 +110,15 @@ services:
       - "${API_PORT:-3000}:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
     depends_on:
       postgres:
         condition: service_healthy
-      ai:
-        condition: service_started
 
   worker:
     build:
@@ -134,6 +140,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       postgres:
+        condition: service_healthy
+      api:
         condition: service_healthy
       ai:
         condition: service_started

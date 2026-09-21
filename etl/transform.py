@@ -415,19 +415,24 @@ def persist_to_ai_db(accepted: list[dict], per_account: dict[str, dict]) -> dict
 
 def load_raw_from_bank_db(database_url: str) -> list[dict[str, str]]:
     import psycopg2
+    from psycopg2 import errors
 
     conn = psycopg2.connect(database_url)
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT uid, account_number, type_code, type_name, nature_code, product_code,
-                       status, amount::text, currency, booked_on::text, counterpart_name,
-                       category, COALESCE(reject_reason, '')
-                FROM raw_transactions
-                ORDER BY booked_on, uid
-                """
-            )
+            try:
+                cur.execute(
+                    """
+                    SELECT uid, account_number, type_code, type_name, nature_code, product_code,
+                           status, amount::text, currency, booked_on::text, counterpart_name,
+                           category, COALESCE(reject_reason, '')
+                    FROM raw_transactions
+                    ORDER BY booked_on, uid
+                    """
+                )
+            except errors.UndefinedTable:
+                conn.rollback()
+                return []
             out: list[dict[str, str]] = []
             for row in cur.fetchall():
                 out.append(
@@ -469,29 +474,40 @@ def main() -> None:
             "postgresql://smartbancs:smartbancs@localhost:5432/smartbancs",
         )
         rows = load_raw_from_bank_db(db_url)
-        input_path.parent.mkdir(parents=True, exist_ok=True)
-        import csv
+        if rows:
+            input_path.parent.mkdir(parents=True, exist_ok=True)
+            import csv
 
-        with input_path.open("w", encoding="utf-8", newline="") as fh:
-            fields = [
-                "uid",
-                "account",
-                "type_code",
-                "type_name",
-                "nature_code",
-                "product_code",
-                "status",
-                "amount",
-                "currency",
-                "date",
-                "counterpart_name",
-                "category",
-                "reject_reason",
-            ]
-            writer = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore")
-            writer.writeheader()
-            writer.writerows(rows)
-        print(json.dumps({"exportedFromDb": len(rows), "to": str(input_path)}, ensure_ascii=False))
+            with input_path.open("w", encoding="utf-8", newline="") as fh:
+                fields = [
+                    "uid",
+                    "account",
+                    "type_code",
+                    "type_name",
+                    "nature_code",
+                    "product_code",
+                    "status",
+                    "amount",
+                    "currency",
+                    "date",
+                    "counterpart_name",
+                    "category",
+                    "reject_reason",
+                ]
+                writer = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore")
+                writer.writeheader()
+                writer.writerows(rows)
+            print(json.dumps({"exportedFromDb": len(rows), "to": str(input_path)}, ensure_ascii=False))
+        else:
+            sample = testdata / "raw_transactions.sample.csv"
+            if not input_path.exists() and sample.exists():
+                input_path = sample
+            print(
+                json.dumps(
+                    {"exportedFromDb": 0, "fallbackCsv": str(input_path)},
+                    ensure_ascii=False,
+                )
+            )
 
     transform(input_path, output_path, rejected_path, infra_path, prompts_path)
 

@@ -13,6 +13,9 @@ testdata/rejected.csv
 testdata/prompt_contexts.json
 testdata/excluded_infra.csv
 testdata/raw_transactions.csv
+docs/direccion-video.md
+docs/guion-video.md
+docs/presentacion-3min.md
 
 __pycache__/
 *.pyc

@@ -10,3 +10,7 @@ txn-008,ACC-001,71,Retiro,D,AHO,REJECTED,99999.00,USD,2026-09-16,ATM Mall,cash,I
 txn-009,ACC-002,35,Transferencia nacional recibida,C,AHO,COMPLETED,40.00,USD,2026-08-03,Ana Ruiz,transfer,
 txn-010,ACC-002,08,Pago tarjeta de crédito,D,TJC,COMPLETED,250.00,USD,2026-09-02,Tienda Tech,shopping,
 txn-011,ACC-90001,34,Transferencia nacional enviada,D,AHO,REJECTED,55.00,USD,2026-09-19,Ana Ruiz,transfer,ACCOUNT_NOT_FOUND
+txn-012,ACC-148,37,Nota de Débito,D,TJC,COMPLETED,450.00,USD,2026-08-10,Tienda Tech,shopping,
+txn-013,ACC-148,08,Pago tarjeta de crédito,D,TJC,COMPLETED,120.00,USD,2026-08-18,ElectroHogar,shopping,
+txn-014,ACC-148,37,Nota de Débito,D,TJC,COMPLETED,890.00,USD,2026-09-08,Mall del Pacífico,shopping,
+txn-015,ACC-148,37,Nota de Débito,D,TJC,COMPLETED,210.00,USD,2026-09-15,Restaurante Andes,food,
